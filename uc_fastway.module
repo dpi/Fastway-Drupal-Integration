@@ -1,1 +1,162 @@
 <?php
+/**
+ * 
+ * @author Daniel Phin
+ * @file Provides Fastway integration with Ubercart
+ */
+
+/*
+$uc_fastway_origin_countries = array(
+  0   => 'Australia',
+  6   => 'New Zealand',
+  8   => 'England',
+  11  => 'Ireland',
+  12  => 'Germany',
+  24  => 'South Africa',
+);
+
+$uc_fastway_origin_alphas = array(
+  'ADL' => 'Adelaide',
+  'SYD' => 'Sydney',
+  'BRI' => 'Brisbane',
+  'PER' => 'Perth',
+  'TAS' => 'Tasmania',
+);*/
+
+/**
+ * Ubercart Integration
+ * ====================
+ */
+
+/**
+ * Implementation of hook_shipping_method
+ * 
+ * @link http://api.ubercart.org/api/function/hook_shipping_method
+ */
+function uc_fastway_shipping_method() {
+  $methods = array();
+  
+  $enabled = variable_get('uc_quote_enabled', array());
+  $weight = variable_get('uc_quote_method_weight', array('fastway' => 0));
+    
+  $methods['fastway'] = array(
+    'id' => 'fastway',
+    'title' => t('Fastway'),
+    'enabled' => $enabled['fastway'],
+    'weight' => $weight['fastway'],
+    'quote' => array(
+      'type' => 'fastwayblue',//ORDER
+      'callback' => 'uc_fastway_quote',
+      'accessorials' => array(
+        'fastway_blue_label' => 'Fastway Blue Label'
+      ),
+    ),
+  );
+  
+  return $methods;
+}
+
+/**
+ * Quote Callback for Fastway
+ * 
+ * @link http://api.ubercart.org/api/function/hook_shipping_method
+ * @param array $products
+ * @param array $details
+ * @param array $method
+ */
+function uc_fastway_quote($products, $details, $method) {
+  $rates = array();
+  
+  $rates['fastway_blue_label'] = array(
+  	'rate' => 26.03,
+  	'format' => uc_price(26.03, 'x'),
+  	'option_label' => t('UPS 2nd Day Air A.M.')
+  );
+  
+  return $rates;
+}
+
+
+/**
+ * Drupal Integration
+ * ====================
+ */
+
+
+/**
+ * Implementation of hook_node_info
+ * 
+ */
+function uc_fastway_node_info() {
+  return array(
+    'fastwaylabel' => array(
+      'name' => t('Fastway Label'),
+      'module' => 'uc_fastway',
+      'description' => t("A label for Fastway freight service."),
+      'has_title' => TRUE,
+      'title_label' => t('Label Name'),
+      'has_body' => TRUE,
+      'body_label' => t('Notes'),
+    )
+  );
+}
+
+/**
+ * Implements hook_field_info
+ * 
+ * Defines custom CCK fields.
+ * 
+ * http://drupal.org/node/417654
+ */
+function uc_fastway_field_info() {
+  return array(
+    'fastway_label_machine' => array(
+      'label' => t('Fastway Label Code'), 
+      'description' => t('Fastway\'s internal name for the label. Usually all uppercase.'),
+    ),
+    'fastway_label_origin' => array(
+      'label' => t('Fastway Origin Code'), 
+      'description' => t('What origin does this label apply to. Eg: ADL, SYD.'),
+    ),
+    'fastway_label_pref_quote_frequent' => array(
+      'label' => t('Always Quote Frequent'), 
+      'description' => t('Always quote the Frequent price even if quantity is 0.'),
+    ),
+    'fastway_label_minimum_order_frequent' => array(
+      'label' => t('Minimum quantity of Frequent labels per order'), 
+      'description' => t('Minimum quantity of Frequent labels per order.'),
+    ),
+    'fastway_label_minimum_order_standard' => array(
+      'label' => t('Minimum quantity of Standard labels per order'),
+      'description' => t('Minimum quantity of Standard labels per order.'),
+    ),
+    'fastway_label_price_frequent' => array(
+      'label' => t('Frequent label price'), 
+      'description' => t('Price of Frequent label per unit.'),
+    ),
+    'fastway_label_price_standard' => array(
+      'label' => t('Standard label price'), 
+      'description' => t('Price of Standard label per unit.'),
+    ),
+    'fastway_label_life_frequent' => array(
+      'label' => t('Frequent label life'), 
+      'description' => t('How long before Frequent labels expire.'),
+    ),
+    'fastway_label_life_standard' => array(
+      'label' => t('Standard label life'), 
+      'description' => t('How long before Standard labels expire.'),
+    ),
+    'fastway_label_inventory_frequent' => array(
+      'label' => t('XXX'), 
+      'description' => t('YYY'),
+    ),
+    'fastway_label_ZZZ' => array(
+      'label' => t('XXX'), 
+      'description' => t('YYY'),
+    ),
+    'fastway_label_ZZZ' => array(
+      'label' => t('XXX'), 
+      'description' => t('YYY'),
+    ),
+  );
+}
