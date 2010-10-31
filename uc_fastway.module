@@ -6,7 +6,7 @@
  */
 
 /*
-$uc_fastway_origin_countries = array(
+function x(){ $uc_fastway_origin_countries = array(
   0   => 'Australia',
   6   => 'New Zealand',
   8   => 'England',
@@ -21,7 +21,7 @@ $uc_fastway_origin_alphas = array(
   'BRI' => 'Brisbane',
   'PER' => 'Perth',
   'TAS' => 'Tasmania',
-);*/
+); }*/
 
 /**
  * Ubercart Integration
@@ -29,31 +29,73 @@ $uc_fastway_origin_alphas = array(
  */
 
 /**
+ * Implementation of hook_ca_predicate
+ * 
+ * @link http://www.ubercart.org/docs/api/hook_ca_predicate
+ * @link http://www.ubercart.org/docs/developer/9034/conditional_actions
+ */
+function uc_fastway_ca_predicate() {
+  $enabled = variable_get('uc_quote_enabled', array());
+
+  $predicates = array(
+    'uc_fastway_get_quote' => array(//uc_fastway_get_quote
+      '#title' => t('Shipping quote from Fastway'),
+      '#trigger' => 'get_quote_from_fastway', // this trigger is created in shipping/uc_quote.module under function uc_quote_ca_trigger()
+      '#class' => 'uc_fastway',
+      '#status' => $enabled['fastway'],
+      '#actions' => array(
+        array(
+          '#name' => 'uc_quote_action_get_quote', // our method defined in uc_fastway_shipping_method is called in shipping/uc_quote.module 
+          // function uc_quote_action_get_quote() see line containing: $quote_data = call_user_func(
+          '#title' => t('Fetch a fastway shipping quote'),
+          '#argument_map' => array(
+            'order' => 'order',
+            'method' => 'method',
+          ),
+        ),
+      )
+    ),
+  );
+
+  return $predicates;
+}
+
+
+/**
  * Implementation of hook_shipping_method
  * 
  * @link http://api.ubercart.org/api/function/hook_shipping_method
  */
+
 function uc_fastway_shipping_method() {
   $methods = array();
   
   $enabled = variable_get('uc_quote_enabled', array());
-  $weight = variable_get('uc_quote_method_weight', array('fastway' => 0));
-    
+  $weight = variable_get('uc_quote_method_weight', array());
+  
   $methods['fastway'] = array(
     'id' => 'fastway',
-    'title' => t('Fastway'),
+    'title' => t('fastway'),
     'enabled' => $enabled['fastway'],
     'weight' => $weight['fastway'],
     'quote' => array(
-      'type' => 'fastwayblue',//ORDER
+      'type' => 'order',//fastway package',
       'callback' => 'uc_fastway_quote',
-      'accessorials' => array(
-        'fastway_blue_label' => 'Fastway Blue Label'
-      ),
     ),
   );
-  
   return $methods;
+}
+
+function uc_fastway_shipping_type() {
+ 
+  $types = array();
+  $types['fastway package'] = array(
+    'id' => 'fastway package',
+    'title' => t('Fastway Packages'),
+    'weight' => 1,
+  );
+
+  return $types;
 }
 
 /**
@@ -65,16 +107,46 @@ function uc_fastway_shipping_method() {
  * @param array $method
  */
 function uc_fastway_quote($products, $details, $method) {
-  $rates = array();
-  
-  $rates['fastway_blue_label'] = array(
-  	'rate' => 26.03,
-  	'format' => uc_price(26.03, 'x'),
-  	'option_label' => t('UPS 2nd Day Air A.M.')
+  $quotes = array();
+  $context = array(
+    'revision' => 'altered',
+    // 'type' => 'amount',
   );
   
-  return $rates;
+  $combined_weight = 0;
+  foreach ($products as $product) {
+    $combined_weight += ($product->qty * ($product->weight * uc_weight_conversion($product->weight_units, 'kg')));
+  }
+  
+  $services = uc_fastway_request_quote(1, 'ADL', $details['city'], $details['postal_code'], $combined_weight);
+  
+  //dsm($quote_request);
+  
+  $price_picked = 0;
+  foreach ($services as $service) {
+    foreach ($service['pricerange'] as $price) {
+      if ($price > $price_picked) { $price_picked = $price; }
+    }
+  }
+  
+  if ($price_picked > 0) {
+    $quotes[] = array(
+      'rate' => $price_picked, //uc_price('26.04',$context),
+      'format' => $price_picked, //uc_price('26.03', $context),
+      'option_label' => t('Fastway'),
+    );
+  }
+
+  /*
+  $quotes[] = array(
+  	'rate' => 26.04, //uc_price('26.04',$context),
+  	'format' => 26.04, //uc_price('26.03', $context),
+  	'option_label' => t('fastwax'),
+  );*/
+  
+  return $quotes;
 }
+
 
 
 /**
@@ -86,7 +158,7 @@ function uc_fastway_quote($products, $details, $method) {
 /**
  * Implementation of hook_node_info
  * 
- */
+ */ /*
 function uc_fastway_node_info() {
   return array(
     'fastwaylabel' => array(
@@ -99,7 +171,79 @@ function uc_fastway_node_info() {
       'body_label' => t('Notes'),
     )
   );
+}*/
+
+/**
+ * 
+ * Retrieves a quote from Fastway
+ * 
+ * Example of valid XML quote request:
+ * http://www.fastway.com.au/Magic94scripts/mgrqispi94.dll?APPNAME=FW&PRGNAME=FastLocatorRecord&ARGUMENTS=-A1,-AADL,-AVictor%20harbor,-A5211,-A20,-N1
+ * 
+ * @param int $country_code Fastway internal country code
+ * @param string $origin_shortcode Fastway internal origin city code
+ * @param string $destination_fulltext Full text of destination city
+ * @param int $destination_pcode standard Australian postcode
+ * @param int $weight weight, in kilos
+ */
+function uc_fastway_request_quote($country_code, $origin_shortcode, $destination_fulltext, $destination_pcode, $weight) {
+  $maxweight = 25; // fastway only allows maximum weight of 25 kilos
+  
+  $base = "www.fastway.com.au";
+  $script = "Magic94scripts/mgrqispi94.dll";
+  $base_get = "APPNAME=FW&PRGNAME=FastLocatorRecord";
+  $arguments = "";
+  
+  $destination_fulltext = drupal_urlencode($destination_fulltext);
+  
+  if (($weight = ceil($weight)) > $maxweight) { drupal_set_message(t('Fastway does not permit sending packages over @maxweight kilos.', array('@maxweight' => $maxweight)), 'warning'); return false; }
+  if (empty($destination_fulltext) || empty($destination_pcode) || empty($origin_shortcode)) { drupal_set_message(t('Destination or origins not set correctly.')); return false; }
+  
+  $arguments = '-A' . $country_code . ',-A' . $origin_shortcode . ',-A' . $destination_fulltext . ',-A' . $destination_pcode . ',-A' . $weight . ',-N1';
+  
+  $url = 'http://' . $base . '/' . $script . '?' . $base_get . '&ARGUMENTS=' . $arguments;
+  
+  $headers = array('User-Agent' => 'Drupal Ubercart Fastway Module');
+  $request = drupal_http_request($url, $headers);
+  
+  // try to load response into xml object
+  // Fastway is a bad web citizen, and does not make use of HTTP codes. Always returns code 200.
+  // We need to disable php error reporting for this block.
+  // http://php.net/manual/en/function.simplexml-load-string.php
+  // Because the error reporting is so bad, we should expect a malformed response. (not even XML!)
+  
+  libxml_use_internal_errors(true);
+  if (!($response = simplexml_load_string($request->data))) {
+    // xml parsing error:
+    drupal_set_message('Fastway could not get a response for you. Please check your address is correct, and is using correct spelling.','warning');
+    return false;
+  }
+  libxml_use_internal_errors(false);
+   
+  $services = array();
+  foreach ($response->service as $service) {
+    $pricerange = array();
+    $pricerange = explode('to', $service->price);
+    foreach($pricerange as $key => $price) {
+      // filter random dollar signs and whitespace actual floats
+      preg_match_all('/[0-9]+\.[0-9]{2}/i', $price, $matches);
+      if (isset($matches[0][0])) { $pricerange[$key] = $matches[0][0]; }
+    }
+    
+    $services[] = array(
+      'type' => (string)$service->serv,
+      'labels' => explode('/', $service->labelcolour),
+      'pricerange' => $pricerange,
+      'weightlimit' => (string)$service->weightlimit,
+      'numsaverlabels' => (string)$service->numsaverlabels,
+      'totalprice' => (string)$service->totalprice,
+    );
+  }
+  
+  return $services;
 }
+
+
 
 /**
  * Implements hook_field_info
@@ -108,6 +252,8 @@ function uc_fastway_node_info() {
  * 
  * http://drupal.org/node/417654
  */
+
+/*
 function uc_fastway_field_info() {
   return array(
     'fastway_label_machine' => array(
@@ -159,4 +305,4 @@ function uc_fastway_field_info() {
       'description' => t('YYY'),
     ),
   );
-}
+}*/
