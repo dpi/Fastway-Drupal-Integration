@@ -79,9 +79,8 @@ function uc_fastway_shipping_method() {
     'enabled' => $enabled['fastway'],
     'weight' => $weight['fastway'],
     'quote' => array(
-      'type' => 'order',
-      // 'type' => 'fastway_package',
-      'callback' => 'uc_fastway_quote',
+      'type' => 'order',// 'type' => 'fastway_package',
+      'callback' => 'uc_fastway_quote_package',
     ),
   );
   
@@ -119,8 +118,9 @@ function uc_fastway_shipping_type() {
   return $types;
 }
 
+
 /**
- * Quote Callback for Fastway
+ * Quote Callback for Fastway Packages
  * 
  * Called in uc_quote.module by function uc_quote_action_get_quote()
  * Line containing: if (function_exists($method['quote']['callback'])) {
@@ -130,7 +130,7 @@ function uc_fastway_shipping_type() {
  * @param array $details
  * @param array $method
  */
-function uc_fastway_quote($products, $details, $method) {dsm('package quote req');
+function uc_fastway_quote_package($products, $details, $method) {
   $quotes = array();
   $context = array(
     'revision' => 'altered',
@@ -145,27 +145,25 @@ function uc_fastway_quote($products, $details, $method) {dsm('package quote req'
   $quotations = uc_fastway_request_quote(1, 'ADL', $details['city'], $details['postal_code'], $combined_weight);
   if (!$quotations) { return $quotes; }
   
-  $price_picked = 0;
-  foreach ($quotations['services'] as $service) {
-    foreach ($service['pricerange'] as $price) {
-      if (strtolower($service['type']) != 'satchel') {
-        if ($price > $price_picked) { $price_picked = $price; }
-      }
-    }
-  }
-  
-  if ($price_picked > 0) {
+  foreach($quotations['labels'] as $label) {
     $quotes[] = array(
-      'rate' => $price_picked, //uc_price('26.04',$context),
-      'format' => $price_picked, //uc_price('26.03', $context),
-      'option_label' => t('Fastway'),
-    );
+      'rate' => $label['price'], //uc_price('26.04',$context),
+      'format' => $label['price'], //uc_price('26.03', $context),
+      'option_label' => t('Fastway') . ' ' . $label['name'],
+     );
   }
   
   return $quotes;
 }
 
-function uc_fastway_quote_a3($products, $details, $method) {dsm('a3 quote req');
+/**
+ * Quote Callback for Fastway A3 Satchels
+ * 
+ * @param array $products
+ * @param array $details
+ * @param array $method
+ */
+function uc_fastway_quote_a3($products, $details, $method) {
   $quotes = array();
   
   $context = array(
@@ -179,22 +177,7 @@ function uc_fastway_quote_a3($products, $details, $method) {dsm('a3 quote req');
   
   if (!$quotations = uc_fastway_request_quote(1, 'ADL', $details['city'], $details['postal_code'], $combined_weight)) { return $quotes; }
   
-  $price_picked = 0;
-  foreach ($quotations['services'] as $service) {
-    foreach ($service['pricerange'] as $price) {
-      if (strtolower($service['type']) == 'satchel') {
-        if ($price > $price_picked) { $price_picked = $price; }
-      }
-    }
-  }
-  
-  if ($price_picked > 0) {
-    $quotes[] = array(
-      'rate' => $price_picked, //uc_price('26.04',$context),
-      'format' => $price_picked, //uc_price('26.03', $context),
-      'option_label' => t('Fastway A3 Satchel'),
-    );
-  }
+  //stuff
   
   return $quotes;
 }
@@ -273,9 +256,10 @@ function uc_fastway_request_quote($country_code, $origin_shortcode, $destination
   );
   
   // services
-  $services = array();
+  // loop through services defined by fastway to find each label.
+  $fastway_labels = array();
+  
   foreach ($response->service as $service) {
-    $pricerange = array();
     $pricerange = explode('to', $service->price);
     foreach($pricerange as $key => $price) {
       // filter random dollar signs and whitespace actual floats
@@ -283,23 +267,106 @@ function uc_fastway_request_quote($country_code, $origin_shortcode, $destination
       if (isset($matches[0][0])) { $pricerange[$key] = $matches[0][0]; }
     }
     
+    $saverlabelpricerange = false;
+    if ((string)$service->totalprice != 'N/A') {
+      $saverlabelpricerange = explode('-', (string)$service->totalprice);
+      foreach($saverlabelpricerange as $key => $price) {
+        // filter random dollar signs and whitespace actual floats
+        preg_match_all('/[0-9]+\.[0-9]{2}/i', $price, $matches);
+        if (isset($matches[0][0])) { $saverlabelpricerange[$key] = $matches[0][0]; }
+      }
+    }
+    
+    $saverlabelsqty = false;
+    if (is_numeric((string)$service->numsaverlabels)) {
+      $saverlabelsqty = (int)$service->numsaverlabels;
+    }
+    
+    $servicetype = strtolower((string)$service->serv);
+    $labels = (string)$service->labelcolour;
+    $labelcolours = array(); // labels applicable
+    
+    // fix the problem where colour is only added to the last satchel type
+    // add it to each label type
+    // i.e: A2/A3 BLUE = array('BLUE A2','BLUE A3')
+    if (strrpos($labels, ' ')) {
+      $colour = trim(strrchr($labels, ' '));
+      $labels = substr($labels, 0, strpos($labels, ' '));
+      $labelcolours = explode('/', $labels);
+      foreach ($labelcolours as $k => $v) {
+        $labelcolours[$k] = $colour . ' ' . $v;
+      }
+    } else {
+      $labelcolours = explode('/', $labels);
+    }
+    
+    $labelweightlimit = (float)$service->weightlimit;
+    
+    // until we can find the prices of labels in between the two prices provided by fastway,
+    // ie: fastway does not tell you which label is lowest price etc.
+    // we will set all labels to highest price to be safe.
+    $maxprice = 0;
+    foreach ($pricerange as $price) {
+      if ($price > $maxprice) { $maxprice = $price; }
+    }
+    
+    foreach ($labelcolours as $k => $labelcolour) {
+      // No excess weight labels required:
+      if ($saverlabelsqty) {
+        // pick the highest price saver cost until we can figure out how the lower prices work
+        // as above.
+        $maxsaverprice = 0;
+        foreach ($saverlabelpricerange as $price) {
+          if ($price > $maxsaverprice) { $maxsaverprice = $price; }
+        }
+        
+        $fastway_labels[] = array(
+          'type' => $servicetype,
+          'name' => $labelcolour,
+          'notes' => t('@labelcolour colour label with @numsavers saver labels. Total cost of saver labels is @savertotal', array('@labelcolour' => $labelcolour, '@numsavers' => $saverlabelsqty, '@savertotal' => $maxsaverprice)),
+          'price' => ($maxprice + $maxsaverprice),
+        );
+        
+      } else if (!$saverlabelsqty && $weight < $labelweightlimit) {
+        $fastway_labels[] = array(
+          'type' => $servicetype,
+          'name' => $labelcolour,
+          'price' => $maxprice,
+          'notes' => '',
+        );
+      }
+    }
+    
+    continue;
+    
+    
+    
+    /*
     // is the total weight within an allowable amount?
     if ($weight < (float)$service->weightlimit) {
       // NOTE: need to add the excess weight labels
       $services[] = array(
-        'type' => (string)$service->serv,
-        'labels' => explode('/', $service->labelcolour),
+        'type' => (string)$service->serv,!
+        'labels' => 1,
         'pricerange' => $pricerange,
         'weightlimit' => (string)$service->weightlimit,
-        'numsaverlabels' => (string)$service->numsaverlabels,
-        'totalprice' => (string)$service->totalprice,
-      );//dsm((string)$service->serv.'perfect weight');
-    }// else { dsm((string)$service->serv.'too heavy'); }
+        'numsaverlabels' => $numoflabels,
+        'totalprice' => $saverpricerange,
+      );
+    } else if (is_numeric($service->numsaverlabels)) {
+      // fastway allows you to add additional 5KG stickers if more than allowed base amount
+      // numsaverlabels will be set to N/A if not allowed (as in satchels)
+      
+      
+      
+    }*/
+    
+    
   }
   
   return array(
     'locations' => $waypoints,
     'destination' => $destination,
-    'services' => $services,
+    'labels' => $fastway_labels,
   );
 }
