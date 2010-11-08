@@ -142,15 +142,17 @@ function uc_fastway_quote_package($products, $details, $method) {
     $combined_weight += ($product->qty * ($product->weight * uc_weight_conversion($product->weight_units, 'kg')));
   }
   
-  $quotations = uc_fastway_request_quote(1, 'ADL', $details['city'], $details['postal_code'], $combined_weight);
+  $quotations = uc_fastway_api_quote(1, 'ADL', $details['city'], $details['postal_code'], $combined_weight);
   if (!$quotations) { return $quotes; }
   
   foreach($quotations['labels'] as $label) {
-    $quotes[] = array(
-      'rate' => $label['price'], //uc_price('26.04',$context),
-      'format' => $label['price'], //uc_price('26.03', $context),
-      'option_label' => t('Fastway') . ' ' . $label['name'],
-     );
+    if ($label['type'] != 'satchel') {
+      $quotes[] = array(
+        'rate' => $label['price'], //uc_price('26.04',$context),
+        'format' => $label['price'], //uc_price('26.03', $context),
+        'option_label' => t('Fastway') . ' ' . $label['name'],
+      );
+    }
   }
   
   return $quotes;
@@ -175,9 +177,17 @@ function uc_fastway_quote_a3($products, $details, $method) {
     $combined_weight += ($product->qty * ($product->weight * uc_weight_conversion($product->weight_units, 'kg')));
   }
   
-  if (!$quotations = uc_fastway_request_quote(1, 'ADL', $details['city'], $details['postal_code'], $combined_weight)) { return $quotes; }
+  if (!$quotations = uc_fastway_api_quote(1, 'ADL', $details['city'], $details['postal_code'], $combined_weight)) { return $quotes; }
   
-  //stuff
+  foreach($quotations['labels'] as $label) {
+    if ($label['type'] == 'satchel') {
+      $quotes[] = array(
+        'rate' => $label['price'], //uc_price('26.04',$context),
+        'format' => $label['price'], //uc_price('26.03', $context),
+        'option_label' => t('Fastway') . ' Satchel ' . $label['name'],
+      );
+    }
+  }
   
   return $quotes;
 }
@@ -202,7 +212,7 @@ function uc_fastway_quote_a3($products, $details, $method) {
  * @param int $destination_pcode standard Australian postcode
  * @param int $weight weight, in kilos
  */
-function uc_fastway_request_quote($country_code, $origin_shortcode, $destination_fulltext, $destination_pcode, $weight) {
+function uc_fastway_api_quote($country_code, $origin_shortcode, $destination_fulltext, $destination_pcode, $weight) {
   $maxweight = 25; // fastway only allows maximum weight of 25 kilos
   
   $base = "www.fastway.com.au";
@@ -291,10 +301,9 @@ function uc_fastway_request_quote($country_code, $origin_shortcode, $destination
     // i.e: A2/A3 BLUE = array('BLUE A2','BLUE A3')
     if (strrpos($labels, ' ')) {
       $colour = trim(strrchr($labels, ' '));
-      $labels = substr($labels, 0, strpos($labels, ' '));
-      $labelcolours = explode('/', $labels);
-      foreach ($labelcolours as $k => $v) {
-        $labelcolours[$k] = $colour . ' ' . $v;
+      $labels = explode('/', substr($labels, 0, strpos($labels, ' ')));
+      foreach ($labels as $labelsize) {
+        $labelcolours[$labelsize] = $colour . ' ' . $labelsize;
       }
     } else {
       $labelcolours = explode('/', $labels);
@@ -336,32 +345,6 @@ function uc_fastway_request_quote($country_code, $origin_shortcode, $destination
         );
       }
     }
-    
-    continue;
-    
-    
-    
-    /*
-    // is the total weight within an allowable amount?
-    if ($weight < (float)$service->weightlimit) {
-      // NOTE: need to add the excess weight labels
-      $services[] = array(
-        'type' => (string)$service->serv,!
-        'labels' => 1,
-        'pricerange' => $pricerange,
-        'weightlimit' => (string)$service->weightlimit,
-        'numsaverlabels' => $numoflabels,
-        'totalprice' => $saverpricerange,
-      );
-    } else if (is_numeric($service->numsaverlabels)) {
-      // fastway allows you to add additional 5KG stickers if more than allowed base amount
-      // numsaverlabels will be set to N/A if not allowed (as in satchels)
-      
-      
-      
-    }*/
-    
-    
   }
   
   return array(
