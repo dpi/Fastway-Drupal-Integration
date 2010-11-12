@@ -18,7 +18,7 @@
  */
 function uc_fastway_ca_predicate() {
   $enabled = variable_get('uc_quote_enabled', array());
-
+	
   $predicates = array(
     'uc_fastway_get_quote_package' => array(//uc_fastway_get_quote
       '#title' => t('Shipping quote from Fastway'),
@@ -37,6 +37,23 @@ function uc_fastway_ca_predicate() {
         ),
       ),
       'weight' => $weight['fastway'],
+    ),
+    'uc_fastway_get_quote_a2' => array(
+      '#title' => t('Shipping quote for Fastway A2 Sachel'),
+      '#trigger' => 'get_quote_from_fastway_satchel_a2', // this trigger is created in shipping/uc_quote.module under function uc_quote_ca_trigger()
+      '#class' => 'uc_fastway',
+      '#status' => $enabled['fastway_satchel_a2'],
+      '#actions' => array(
+        array(
+          '#name' => 'uc_quote_action_get_quote', // our method defined in uc_fastway_shipping_method is called in shipping/uc_quote.module 
+          '#title' => t('Fetch a shipping quote'),
+          '#argument_map' => array(
+            'order' => 'order',
+            'method' => 'method',
+          ),
+        ),
+      ),
+      'weight' => $weight['fastway_satchel_a2'],
     ),
     'uc_fastway_get_quote_a3' => array(
       '#title' => t('Shipping quote for Fastway A3 Sachel'),
@@ -84,6 +101,17 @@ function uc_fastway_shipping_method() {
     ),
   );
   
+  $methods['fastway_satchel_a2'] = array(
+    'id' => 'fastway_satchel_a2',
+    'title' => t('Fastway A2 Satchel'),
+    'enabled' => $enabled['fastway_satchel_a2'],
+    'weight' => $weight['fastway_satchel_a2'],
+    'quote' => array(
+      'type' => 'satchel_a2',
+      'callback' => 'uc_fastway_quote_a2', 
+    ),
+  );
+  
   $methods['fastway_satchel_a3'] = array(
     'id' => 'fastway_satchel_a3',
     'title' => t('Fastway A3 Satchel'),
@@ -107,13 +135,18 @@ function uc_fastway_shipping_type() {
     'weight' => 1,
   );
   
-  $types['satchel_a3'] = array(
-    'id' => 'satchel_a3',
-    'title' => t('A3 Satchel'),
+  $types['satchel_a2'] = array(
+    'id' => 'satchel_a2',
+    'title' => t('A2 Satchel'),
     'weight' => 2,
   );
   
-  // A2 SATCHEL
+  $types['satchel_a3'] = array(
+    'id' => 'satchel_a3',
+    'title' => t('A3 Satchel'),
+    'weight' => 3,
+  );
+  
 
   return $types;
 }
@@ -159,13 +192,13 @@ function uc_fastway_quote_package($products, $details, $method) {
 }
 
 /**
- * Quote Callback for Fastway A3 Satchels
+ * Quote Callback for Fastway A2 Satchels
  * 
  * @param array $products
  * @param array $details
  * @param array $method
  */
-function uc_fastway_quote_a3($products, $details, $method) {
+function uc_fastway_quote_a2($products, $details, $method) {dsm('a2 quote');
   $quotes = array();
   
   $context = array(
@@ -180,7 +213,41 @@ function uc_fastway_quote_a3($products, $details, $method) {
   if (!$quotations = uc_fastway_api_quote(1, 'ADL', $details['city'], $details['postal_code'], $combined_weight)) { return $quotes; }
   
   foreach($quotations['labels'] as $label) {
-    if ($label['type'] == 'satchel') {
+    if ($label['type'] == 'satchel' && $label['size'] == 'A2') {
+      $quotes[] = array(
+        'rate' => $label['price'], //uc_price('26.04',$context),
+        'format' => $label['price'], //uc_price('26.03', $context),
+        'option_label' => t('Fastway') . ' Satchel ' . $label['name'],
+      );
+    }
+  }
+  
+  return $quotes;
+}
+
+/**
+ * Quote Callback for Fastway A3 Satchels
+ * 
+ * @param array $products
+ * @param array $details
+ * @param array $method
+ */
+function uc_fastway_quote_a3($products, $details, $method) {dsm('a3 quote');
+  $quotes = array();
+  
+  $context = array(
+    'revision' => 'altered',
+  );
+  
+  $combined_weight = 0;
+  foreach ($products as $product) {
+    $combined_weight += ($product->qty * ($product->weight * uc_weight_conversion($product->weight_units, 'kg')));
+  }
+  
+  if (!$quotations = uc_fastway_api_quote(1, 'ADL', $details['city'], $details['postal_code'], $combined_weight)) { return $quotes; }
+  
+  foreach($quotations['labels'] as $label) {
+    if ($label['type'] == 'satchel' && $label['size'] == 'A3') {
       $quotes[] = array(
         'rate' => $label['price'], //uc_price('26.04',$context),
         'format' => $label['price'], //uc_price('26.03', $context),
@@ -319,7 +386,7 @@ function uc_fastway_api_quote($country_code, $origin_shortcode, $destination_ful
       if ($price > $maxprice) { $maxprice = $price; }
     }
     
-    foreach ($labelcolours as $k => $labelcolour) {
+    foreach ($labelcolours as $size => $labelcolour) {
       // No excess weight labels required:
       if ($saverlabelsqty) {
         // pick the highest price saver cost until we can figure out how the lower prices work
@@ -332,6 +399,7 @@ function uc_fastway_api_quote($country_code, $origin_shortcode, $destination_ful
         $fastway_labels[] = array(
           'type' => $servicetype,
           'name' => $labelcolour,
+        	'size' => is_numeric($size) ? NULL : $size, 
           'notes' => t('@labelcolour colour label with @numsavers saver labels. Total cost of saver labels is @savertotal', array('@labelcolour' => $labelcolour, '@numsavers' => $saverlabelsqty, '@savertotal' => $maxsaverprice)),
           'price' => ($maxprice + $maxsaverprice),
         );
@@ -340,6 +408,7 @@ function uc_fastway_api_quote($country_code, $origin_shortcode, $destination_ful
         $fastway_labels[] = array(
           'type' => $servicetype,
           'name' => $labelcolour,
+        	'size' => is_numeric($size) ? NULL : $size, 
           'price' => $maxprice,
           'notes' => '',
         );
