@@ -19,7 +19,7 @@ function uc_fastway_menu() {
 	    'page arguments' => array('fastway_settings'),
 	    'access arguments' => array('configure quotes'),
 	    'type' => MENU_LOCAL_TASK,
-	    'file' => '../fastway.admin.inc',
+	    'file' => '../fastway_api.admin.inc',
 	  ),
   );
 }
@@ -120,9 +120,16 @@ function uc_fastway_quote_package($products, $details, $method) {
     $combined_weight += ($product->qty * ($product->weight * uc_weight_conversion($product->weight_units, 'kg')));
   }
   
-  $quotations = fastway_api_quote(1, 'ADL', $details['city'], $details['postal_code'], $combined_weight);
+  if (variable_get('fastway_origin', '') == '') {
+  	drupal_set_message(t('Please set the origin in Fastway settings.'), 'warning');
+  	watchdog('uc_fastway', t('Please set the origin in Fastway settings.'));
+  	return array();
+  }
+  
+  $quotations = fastway_api_quote(1, variable_get('fastway_origin', ''), $details['city'], $details['postal_code'], $combined_weight);
+  
   if (!$quotations) { return array(400 => array('option_label' => 'Fastway', 'error' => t('Invalid destination, please check your delivery address.'))); }
-  dsm($quotations);
+  
   $key = 0;
   $key_quote_lowest_price = array('key' => 0, 'price' => 999999.0);
   $key_quote_highest_price = array('key' => 0, 'price' => 0);

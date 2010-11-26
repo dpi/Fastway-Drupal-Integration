@@ -166,3 +166,19 @@ function fastway_api_quote($country_code, $origin_shortcode, $destination_fullte
     'labels' => $fastway_labels,
   );
 }
+
+/**
+ * Sends a dummy quote request to Fastway to test whether a origin code exists.
+ * 
+ * @param string $origin_code
+ */
+function fastway_api_check_origin($origin_code) {
+	// We're going to pretend to send a package to Sydney. A place that is known to exist. I think.
+	
+	$origin_code = (string)$origin_code;
+	if (!fastway_api_quote(1, $origin_code, 'Sydney', 2000, 1)) {
+		return false;
+	}
+	
+	return true;
+}
