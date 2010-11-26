@@ -4,7 +4,7 @@ Drupal 6 and 7 development.
 
 Configuration is __required__.
 
-== Fastway ==
+## Fastway 
 
 Australia is currently supported by this module.
 
@@ -12,7 +12,7 @@ The Fastway API is not exactly the most flexible one - errors can result in vagu
 
 Please Send your complaints to Fastway.
 
-== Installation ==
+## Installation 
 
 * Need to configure origin (store location) to match Fastway internal code.
 

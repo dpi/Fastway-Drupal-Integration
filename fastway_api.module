@@ -43,7 +43,7 @@ function fastway_api_quote($country_code, $origin_shortcode, $destination_fullte
   
   $headers = array('User-Agent' => 'Drupal Ubercart Fastway Module');
   
-  watchdog('uc_fastway', t('Made an API request to Fastway: @url' , array('@url' => $url)));
+  watchdog('uc_fastway', t('Sent an API request to Fastway: @url' , array('@url' => $url)));
   $request = drupal_http_request($url, $headers);
   
   // try to load response into xml object
@@ -122,6 +122,9 @@ function fastway_api_quote($country_code, $origin_shortcode, $destination_fullte
     
     $labelweightlimit = (float)$service->weightlimit;
     
+    // label database logic here
+    
+    
     // until we can find the prices of labels in between the two prices provided by fastway,
     // ie: fastway does not tell you which label is lowest price etc.
     // we will set all labels to highest price to be safe.
@@ -131,7 +134,8 @@ function fastway_api_quote($country_code, $origin_shortcode, $destination_fullte
     }
     
     foreach ($labelcolours as $size => $labelcolour) {
-      // No excess weight labels required:
+    	// we have already checked that we are not overweight
+      // weight labels required:
       if ($saverlabelsqty) {
         // pick the highest price saver cost until we can figure out how the lower prices work
         // as above.
@@ -144,16 +148,19 @@ function fastway_api_quote($country_code, $origin_shortcode, $destination_fullte
           'type' => $servicetype,
           'name' => $labelcolour,
         	'size' => is_numeric($size) ? NULL : $size, 
-          'notes' => t('@labelcolour colour label with @numsavers saver labels. Total cost of saver labels is @savertotal', array('@labelcolour' => $labelcolour, '@numsavers' => $saverlabelsqty, '@savertotal' => $maxsaverprice)),
+          'notes' => t('@labelcolour colour label with @numsavers saver labels. Cost of colour label is @labeltotal Total cost of saver labels is @savertotal', array('@labelcolour' => $labelcolour, '@numsavers' => $saverlabelsqty, '@labeltotal' => $maxprice, '@savertotal' => $maxsaverprice)),
           'price' => ($maxprice + $maxsaverprice),
+        	'saverlabelqty' => $saverlabelsqty,
         );
         
       } else if (!$saverlabelsqty && $weight < $labelweightlimit) {
+      	// No excess weight labels required:
         $fastway_labels[] = array(
           'type' => $servicetype,
           'name' => $labelcolour,
         	'size' => is_numeric($size) ? NULL : $size, 
           'price' => $maxprice,
+        	'saverlabelqty' => 0,
           'notes' => '',
         );
       }

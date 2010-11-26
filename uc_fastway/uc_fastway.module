@@ -84,16 +84,31 @@ function uc_fastway_shipping_method() {
     'quote' => array(
       'type' => 'order',
       'callback' => 'uc_fastway_quote_package',
-  		'accessorials' => array(
-        0 => t('Fastway0'),
-        1 => t('Fastway'),
-        2 => t('Fastway2'),
-        400 => t('The desination is invalid'),
-      ),
+  		'accessorials' => uc_fastway_labels(),
     ),
   );
   
   return $methods;
+}
+
+/**
+ * Queries the label database and returns something usable for the accessorial list in uc_fastway_shipping_method
+ * 
+ * Accessorial keys map to the keys in the array of the return value of a quote callback.
+ * 
+ * Therefore the accessorials are labels for each quotation returned - and are used on the REVIEW ORDER page.
+ * 
+ * Ie: the keys of the (array) return value of uc_fastway_quote_package 
+ */
+function uc_fastway_labels() {
+	return array(
+        0 => t('Fastway000'),
+        1 => t('Fastway111'),
+        2 => t('Fastway222'),
+        400 => t('Error'),
+        401 => t('Fastway configuration needed'),
+        402 => t('The desination is invalid'),
+      );
 }
 
 /**
@@ -123,13 +138,13 @@ function uc_fastway_quote_package($products, $details, $method) {
   if (variable_get('fastway_origin', '') == '') {
   	drupal_set_message(t('Please set the origin in Fastway settings.'), 'warning');
   	watchdog('uc_fastway', t('Please set the origin in Fastway settings.'));
-  	return array();
+  	return array(401 => array('option_label' => 'Fastway', 'error' => t('Invalid origin. Contact an administrator to resolve this issue.')));
   }
   
   $quotations = fastway_api_quote(1, variable_get('fastway_origin', ''), $details['city'], $details['postal_code'], $combined_weight);
   
-  if (!$quotations) { return array(400 => array('option_label' => 'Fastway', 'error' => t('Invalid destination, please check your delivery address.'))); }
-  
+  if (!$quotations) { return array(402 => array('option_label' => 'Fastway', 'error' => t('Invalid destination, please check your delivery address.'))); }
+  dsm($quotations);
   $key = 0;
   $key_quote_lowest_price = array('key' => 0, 'price' => 999999.0);
   $key_quote_highest_price = array('key' => 0, 'price' => 0);

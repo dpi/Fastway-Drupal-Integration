@@ -25,3 +25,5 @@ Per label:
 * __Int__  _Overflow label content type Drupal nid_
 **         After the maximum weight has been reached for this label, which label can be applied next.
 **         Leave 0 for no more.
+
+TODO: Automatically add discovered colour labels and saver labels into a database. Used for accessorial shipping method. allows user to set proper price. default when system adds label is the maximum price in that query.
