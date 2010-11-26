@@ -1,0 +1,160 @@
+<?php
+
+
+
+/**
+ * 
+ * @author Daniel Phin
+ * @file Provides Fastway integration with Ubercart
+ */
+
+/**
+ * Drupal integration
+ */
+function uc_fastway_menu() {
+  return array(
+	  'admin/store/settings/quotes/methods/fastway' => array(
+	    'title' => 'Fastway',
+	    'page callback' => 'drupal_get_form',
+	    'page arguments' => array('fastway_settings'),
+	    'access arguments' => array('configure quotes'),
+	    'type' => MENU_LOCAL_TASK,
+	    'file' => '../fastway.admin.inc',
+	  ),
+  );
+}
+
+/**
+ * Ubercart Integration
+ * ====================
+ */
+
+/**
+ * Implementation of hook_ca_predicate
+ * 
+ * @link http://www.ubercart.org/docs/api/hook_ca_predicate
+ * @link http://www.ubercart.org/docs/developer/9034/conditional_actions
+ */
+function uc_fastway_ca_predicate() {
+  $enabled = variable_get('uc_quote_enabled', array());
+	
+  $predicates = array(
+    'uc_fastway_get_quote_package' => array(//uc_fastway_get_quote
+      '#title' => t('Shipping quote from Fastway'),
+      '#trigger' => 'get_quote_from_fastway', // this trigger is created in shipping/uc_quote.module under function uc_quote_ca_trigger()
+      '#class' => 'uc_fastway',
+      '#status' => $enabled['fastway'],
+      '#actions' => array(
+        array(
+          '#name' => 'uc_quote_action_get_quote', // our method defined in uc_fastway_shipping_method is called in shipping/uc_quote.module 
+          // function uc_quote_action_get_quote() see line containing: $quote_data = call_user_func(
+          '#title' => t('Fetch a shipping quote'),
+          '#argument_map' => array(
+            'order' => 'order',
+            'method' => 'method',
+          ),
+        ),
+      ),
+      'weight' => $weight['fastway'],
+    ),
+  );
+
+  return $predicates;
+}
+
+
+/**
+ * Implementation of hook_shipping_method
+ * 
+ * @link http://api.ubercart.org/api/function/hook_shipping_method
+ */
+
+function uc_fastway_shipping_method() {
+  $methods = array();
+  
+  $enabled = variable_get('uc_quote_enabled', array());
+  $weight = variable_get('uc_quote_method_weight', array());
+  
+  $methods['fastway'] = array(
+    'id' => 'fastway',
+    'title' => t('Fastway'),
+  	'module' => 'uc_fastway',
+    'enabled' => $enabled['fastway'],
+    'weight' => $weight['fastway'],
+    'quote' => array(
+      'type' => 'order',
+      'callback' => 'uc_fastway_quote_package',
+  		'accessorials' => array(
+        0 => t('Fastway0'),
+        1 => t('Fastway'),
+        2 => t('Fastway2'),
+        400 => t('The desination is invalid'),
+      ),
+    ),
+  );
+  
+  return $methods;
+}
+
+/**
+ * Quote Callback for Fastway Packages
+ * 
+ * Called in uc_quote.module by function uc_quote_action_get_quote()
+ * Line containing: if (function_exists($method['quote']['callback'])) {
+ * 
+ * @link http://api.ubercart.org/api/function/hook_shipping_method
+ * @param array $products
+ * @param array $details
+ * @param array $method
+ */
+function uc_fastway_quote_package($products, $details, $method) {
+	$quotes = array();
+  
+  $context = array(
+    'revision' => 'altered',
+    'type' => 'amount',
+  );
+  
+  $combined_weight = 0;
+  foreach ($products as $product) {
+    $combined_weight += ($product->qty * ($product->weight * uc_weight_conversion($product->weight_units, 'kg')));
+  }
+  
+  $quotations = fastway_api_quote(1, 'ADL', $details['city'], $details['postal_code'], $combined_weight);
+  if (!$quotations) { return array(400 => array('option_label' => 'Fastway', 'error' => t('Invalid destination, please check your delivery address.'))); }
+  dsm($quotations);
+  $key = 0;
+  $key_quote_lowest_price = array('key' => 0, 'price' => 999999.0);
+  $key_quote_highest_price = array('key' => 0, 'price' => 0);
+  
+  foreach($quotations['labels'] as $label) {
+    if ($label['type'] != 'satchel') {
+	    
+    	$altered = uc_price($label['price'], $context);
+	    $context['revision'] = 'formatted';
+	    $formatted = uc_price($label['price'], $context);
+    	
+      $quotes[$key] = array(
+        'rate' => $altered,
+        'format' => $formatted,
+        'option_label' => check_plain(t('Fastway @label', array('@label' => $label['name']))),
+      );
+      
+      if ($key_quote_lowest_price['price'] > $label['price']) { // is this the lowest price so far?
+  			$key_quote_lowest_price = array('key' => $key, 'price' => $label['price']);
+      }
+      
+      if ($key_quote_highest_price['price'] < $label['price']) { // is this the highest price so far?
+  			$key_quote_highest_price = array('key' => $key, 'price' => $label['price']);
+      }
+    }
+    $key++;
+  }
+  
+  if (variable_get('fastway_pref_price') == FASTWAY_PREF_PRICE_LOWESTPRICE) {
+  	return array($quotes[$key_quote_lowest_price['key']]);
+  }
+  
+  return array($quotes[$key_quote_highest_price['key']]);
+}
+

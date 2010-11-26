@@ -1,6 +1,0 @@
-name = "Fastway"
-description = Ubercart freight estimation for Fastway couriers.
-package = Ubercart - fulfillment
-core = 6.x
-dependencies[] = uc_quote
-dependencies[] = content

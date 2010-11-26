@@ -1,0 +1,5 @@
+name = "Fastway API"
+description = Fastway Quote API
+core = 6.x
+dependencies[] = uc_quote
+dependencies[] = content
