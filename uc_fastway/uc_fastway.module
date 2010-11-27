@@ -101,14 +101,19 @@ function uc_fastway_shipping_method() {
  * Ie: the keys of the (array) return value of uc_fastway_quote_package 
  */
 function uc_fastway_labels() {
-	return array(
-        0 => t('Fastway000'),
-        1 => t('Fastway111'),
-        2 => t('Fastway222'),
-        400 => t('Error'),
-        401 => t('Fastway configuration needed'),
-        402 => t('The desination is invalid'),
-      );
+	$all_labels = array();
+  
+	$db_all_labels = db_query("SELECT fl.fid, fl.name FROM {fastway_labels} fl", array());
+	
+	while ($label = db_fetch_array($db_all_labels)) {
+		$all_labels[$label['fid']] = t('Fastway') . ' ' . $label['name'];
+	}
+  
+	return $all_labels + array(
+    400 => t('Error'),
+    401 => t('Fastway configuration needed'),
+    402 => t('The desination is invalid'),
+  );
 }
 
 /**
@@ -144,37 +149,38 @@ function uc_fastway_quote_package($products, $details, $method) {
   $quotations = fastway_api_quote(1, variable_get('fastway_origin', ''), $details['city'], $details['postal_code'], $combined_weight);
   
   if (!$quotations) { return array(402 => array('option_label' => 'Fastway', 'error' => t('Invalid destination, please check your delivery address.'))); }
-  dsm($quotations);
+  
   $key = 0;
   $key_quote_lowest_price = array('key' => 0, 'price' => 999999.0);
   $key_quote_highest_price = array('key' => 0, 'price' => 0);
   
   foreach($quotations['labels'] as $label) {
     if ($label['type'] != 'satchel') {
-	    
-    	$altered = uc_price($label['price'], $context);
+    	
+    	$altered = uc_price($label['rate'], $context);
 	    $context['revision'] = 'formatted';
-	    $formatted = uc_price($label['price'], $context);
+	    $formatted = uc_price($label['rate'], $context);
     	
       $quotes[$key] = array(
-        'rate' => $altered,
+        'fid' => $label['fid'], 
+      	'rate' => $label['rate'], //$altered,
         'format' => $formatted,
         'option_label' => check_plain(t('Fastway @label', array('@label' => $label['name']))),
       );
       
-      if ($key_quote_lowest_price['price'] > $label['price']) { // is this the lowest price so far?
-  			$key_quote_lowest_price = array('key' => $key, 'price' => $label['price']);
+      if ($key_quote_lowest_price['price'] > $label['rate']) { // is this the lowest price so far?
+  			$key_quote_lowest_price = array('key' => $key, 'price' => $label['rate']);
       }
       
-      if ($key_quote_highest_price['price'] < $label['price']) { // is this the highest price so far?
-  			$key_quote_highest_price = array('key' => $key, 'price' => $label['price']);
+      if ($key_quote_highest_price['price'] < $label['rate']) { // is this the highest price so far?
+  			$key_quote_highest_price = array('key' => $key, 'price' => $label['rate']);
       }
     }
     $key++;
   }
   
-  if (variable_get('fastway_pref_price') == FASTWAY_PREF_PRICE_LOWESTPRICE) {
-  	return array($quotes[$key_quote_lowest_price['key']]);
+  if (variable_get('fastway_pref_price', FASTWAY_PREF_PRICE_DEFAULT) == FASTWAY_PREF_PRICE_LOWESTPRICE) {
+  	return array($quotes[$key_quote_lowest_price['key']]['fid'] => $quotes[$key_quote_lowest_price['key']]);
   }
   
   return array($quotes[$key_quote_highest_price['key']]);

@@ -81,6 +81,10 @@ function fastway_api_quote($country_code, $origin_shortcode, $destination_fullte
   $fastway_labels = array();
   
   foreach ($response->service as $service) {
+    $servicetype = strtolower((string)$service->serv);
+    $labels = (string)$service->labelcolour;
+    $labelcolours = array(); // labels applicable
+    
     $pricerange = explode('to', $service->price);
     foreach($pricerange as $key => $price) {
       // filter random dollar signs and whitespace actual floats
@@ -103,10 +107,6 @@ function fastway_api_quote($country_code, $origin_shortcode, $destination_fullte
       $saverlabelsqty = (int)$service->numsaverlabels;
     }
     
-    $servicetype = strtolower((string)$service->serv);
-    $labels = (string)$service->labelcolour;
-    $labelcolours = array(); // labels applicable
-    
     // fix the problem where colour is only added to the last satchel type
     // add it to each label type
     // i.e: A2/A3 BLUE = array('BLUE A2','BLUE A3')
@@ -122,8 +122,6 @@ function fastway_api_quote($country_code, $origin_shortcode, $destination_fullte
     
     $labelweightlimit = (float)$service->weightlimit;
     
-    // label database logic here
-    
     
     // until we can find the prices of labels in between the two prices provided by fastway,
     // ie: fastway does not tell you which label is lowest price etc.
@@ -134,6 +132,18 @@ function fastway_api_quote($country_code, $origin_shortcode, $destination_fullte
     }
     
     foreach ($labelcolours as $size => $labelcolour) {
+    	// Add Label to Database if it does not exist.
+    	$label_size = is_numeric($size) ? NULL : $size; // only strings are recognized sizes. Numerics mean nothing.
+    	
+		  $label_exists = db_query("SELECT fl.fid FROM {fastway_labels} fl WHERE fl.name = '%s' AND fl.size = '%s' AND fl.origin_country = '%s' AND fl.origin_city = '%s' AND fl.type = '%s'", array($labelcolour, $label_size, $country_code, $origin_shortcode, $servicetype));
+    	
+    	if (!$label_id = db_result($label_exists)) { // Check if this label exists
+    		$db_label_add = db_query("INSERT INTO {fastway_labels} (`name`, `size`, `origin_country`, `origin_city`, `type`,`rate`,`rate_human_set`) VALUES ('%s','%s','%s','%s','%s','%f','%d')", array($labelcolour, $label_size, $country_code, $origin_shortcode, $servicetype, $maxprice, 0));
+    		$label_info = fastway_api_label(db_last_insert_id('fastway_labels', 'fid'));
+    	} else {
+    		$label_info = fastway_api_label($label_id);
+    	}
+    	
     	// we have already checked that we are not overweight
       // weight labels required:
       if ($saverlabelsqty) {
@@ -145,21 +155,14 @@ function fastway_api_quote($country_code, $origin_shortcode, $destination_fullte
         }
         
         $fastway_labels[] = array(
-          'type' => $servicetype,
-          'name' => $labelcolour,
-        	'size' => is_numeric($size) ? NULL : $size, 
-          'notes' => t('@labelcolour colour label with @numsavers saver labels. Cost of colour label is @labeltotal Total cost of saver labels is @savertotal', array('@labelcolour' => $labelcolour, '@numsavers' => $saverlabelsqty, '@labeltotal' => $maxprice, '@savertotal' => $maxsaverprice)),
-          'price' => ($maxprice + $maxsaverprice),
+          'notes' => t('@labelcolour colour label with @numsavers saver labels. Cost of colour label is @labeltotal Total cost of saver labels is @savertotal', array('@labelcolour' => $labelcolour, '@numsavers' => $saverlabelsqty, '@labeltotal' => $label_info['rate'], '@savertotal' => $maxsaverprice)),
+          'rate' => ($label_info['rate'] + $maxsaverprice), // amend rate with saver cost
         	'saverlabelqty' => $saverlabelsqty,
-        );
+        ) + $label_info; // need to combine here because rate was amended.
         
       } else if (!$saverlabelsqty && $weight < $labelweightlimit) {
       	// No excess weight labels required:
-        $fastway_labels[] = array(
-          'type' => $servicetype,
-          'name' => $labelcolour,
-        	'size' => is_numeric($size) ? NULL : $size, 
-          'price' => $maxprice,
+        $fastway_labels[] = $label_info + array(
         	'saverlabelqty' => 0,
           'notes' => '',
         );
@@ -188,4 +191,12 @@ function fastway_api_check_origin($origin_code) {
 	}
 	
 	return true;
+}
+
+function fastway_api_label($fid) {
+  $label_result = db_query("SELECT 
+  fl.fid, fl.name, fl.size, fl.rate, fl.rate_human_set, fl.origin_country, fl.origin_city, fl.type
+  FROM {fastway_labels} fl 
+  WHERE fl.fid = '%d'", array($fid));
+  return db_fetch_array($label_result);  
 }
